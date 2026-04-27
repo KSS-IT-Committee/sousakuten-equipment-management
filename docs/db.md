@@ -1,4 +1,4 @@
-# DataBase
+# Database
 
 ## 1. Equipments
 
