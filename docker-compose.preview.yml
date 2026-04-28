@@ -1,0 +1,22 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: equipment
+      POSTGRES_PASSWORD: equipment
+      POSTGRES_DB: equipment
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U equipment -d equipment"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+
+  app:
+    image: ghcr.io/${IMAGE_SLUG:?IMAGE_SLUG must be set}/preview:${TAG:-latest}
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://equipment:equipment@db:5432/equipment
+    ports:
+      - "3000:3000"
