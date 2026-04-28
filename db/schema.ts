@@ -1,13 +1,13 @@
 import { pgTable, serial, integer, text, timestamp } from "drizzle-orm/pg-core";
 
-export const Equipments = pgTable("Equipments", {
+export const Equipments = pgTable("equipments", {
   id: serial("id").primaryKey(),
   name: text("name").notNull(),
   quantity: integer("quantity").notNull(),
   picture: text("picture"),
 });
 
-export const Borrowings = pgTable("Borrowings", {
+export const Borrowings = pgTable("borrowings", {
   id: serial("id").primaryKey(),
   equipmentId: integer("equipment_id")
     .notNull()
