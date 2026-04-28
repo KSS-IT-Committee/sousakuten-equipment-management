@@ -8,6 +8,6 @@
 
 ## 2. Borrowings
 
-| id | equipmentId | tagNumber | class | borrowed_at | returned_at |
+| id | equipment_id | tag_number | class | borrowed_at | returned_at |
 | --- | --- | --- | --- | --- | --- |
 | 1 | 1 | 3 | 11 | 2024-01-01 | 2024-01-10 |
