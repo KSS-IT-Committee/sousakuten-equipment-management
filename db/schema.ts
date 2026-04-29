@@ -12,7 +12,7 @@ export const Borrowings = pgTable("borrowings", {
   equipmentId: integer("equipment_id")
     .notNull()
     .references(() => Equipments.id),
-  tagNumber: integer("tag_number").notNull(),
+  // tagNumber: integer("tag_number").notNull(),
   class: integer("class").notNull(),
   borrowedAt: timestamp("borrowed_at", { withTimezone: true }).defaultNow().notNull(),
   returnedAt: timestamp("returned_at", { withTimezone: true }),
