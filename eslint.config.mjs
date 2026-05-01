@@ -12,7 +12,7 @@ const eslintConfig = defineConfig([
     settings: {
       react: {
         version: "19",
-      }
+      },
     },
     plugins: {
       "simple-import-sort": simpleImportSort,
