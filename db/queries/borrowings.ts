@@ -1,6 +1,7 @@
-import { db } from "@/lib/db";
-import { Borrowings } from "@/db/schema";
 import { eq, isNull } from "drizzle-orm";
+
+import { Borrowings } from "@/db/schema";
+import { db } from "@/lib/db";
 
 export async function getBorrowings() {
   return await db.select().from(Borrowings);

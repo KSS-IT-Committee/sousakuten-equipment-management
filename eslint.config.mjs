@@ -9,6 +9,11 @@ const eslintConfig = defineConfig([
   ...nextVitals,
   ...nextTs,
   {
+    settings: {
+      react: {
+        version: "19",
+      }
+    },
     plugins: {
       "simple-import-sort": simpleImportSort,
       "unused-imports": unusedImports,
