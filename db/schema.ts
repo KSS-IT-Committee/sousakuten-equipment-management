@@ -14,6 +14,8 @@ export const Borrowings = pgTable("borrowings", {
     .references(() => Equipments.id),
   // tagNumber: integer("tag_number").notNull(),
   class: integer("class").notNull(),
-  borrowedAt: timestamp("borrowed_at", { withTimezone: true }).defaultNow().notNull(),
+  borrowedAt: timestamp("borrowed_at", { withTimezone: true })
+    .defaultNow()
+    .notNull(),
   returnedAt: timestamp("returned_at", { withTimezone: true }),
 });

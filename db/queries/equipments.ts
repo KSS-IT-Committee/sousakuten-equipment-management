@@ -7,11 +7,18 @@ export async function getEquipments() {
 }
 
 export async function getEquipmentById(id: number) {
-  const result = await db.select().from(Equipments).where(eq(Equipments.id, id));
+  const result = await db
+    .select()
+    .from(Equipments)
+    .where(eq(Equipments.id, id));
   return result[0];
 }
 
-export async function createEquipment(data: { name: string; quantity: number; picture?: string }) {
+export async function createEquipment(data: {
+  name: string;
+  quantity: number;
+  picture?: string;
+}) {
   return await db.insert(Equipments).values(data);
   // if picture is empty, set default
 }
