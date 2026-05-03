@@ -27,6 +27,14 @@ export const metadata: Metadata = {
   },
 };
 
+/**
+ * Root layout component that applies global fonts, page-level HTML attributes, and renders app content.
+ *
+ * Renders an `<html lang="en">` element with font-related CSS variables and utility classes, and a `<body>` that wraps the provided children.
+ *
+ * @param children - The React nodes to render inside the application's body
+ * @returns The root HTML structure containing the rendered children
+ */
 export default function RootLayout({
   children,
 }: Readonly<{
