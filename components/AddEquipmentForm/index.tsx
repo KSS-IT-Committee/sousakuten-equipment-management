@@ -80,6 +80,7 @@ export function AddEquipmentForm({
     try {
       const formData = new FormData(e.currentTarget);
 
+      let result;
       if (mode === "edit" && initialValues?.id) {
         formData.set("equipmentId", String(initialValues.id));
         formData.set(
@@ -87,9 +88,18 @@ export function AddEquipmentForm({
           isImageDeleted ? "" : (initialValues.picture ?? ""),
         );
 
-        await updateEquipmentAction(formData);
+        result = await updateEquipmentAction(formData);
       } else {
-        await createEquipmentAction(formData);
+        result = await createEquipmentAction(formData);
+      }
+
+      // The actions report failures as a value rather than throwing: a thrown
+      // error would reach production as React's generic "An error occurred in
+      // the Server Components render…" text instead of the message below (#190).
+      if (!result.success) {
+        setError(result.error);
+        setLoading(false);
+        return;
       }
 
       router.push("/");

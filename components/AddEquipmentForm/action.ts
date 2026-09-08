@@ -15,7 +15,7 @@ import {
   updateEquipment,
 } from "@/db/queries/equipments";
 import { Borrowings, Equipments } from "@/db/schema";
-import { isAdmin, requireAdmin } from "@/lib/authorize";
+import { isAdmin } from "@/lib/authorize";
 import { db } from "@/lib/db";
 import {
   ALLOWED_IMAGE_LABEL,
@@ -23,6 +23,34 @@ import {
   equipmentImagesDir,
   IMAGE_URL_PREFIX,
 } from "@/lib/equipment-images";
+
+/**
+ * A failure the user can act on (bad input, a rule they hit). Thrown inside the
+ * actions below and turned into `{ success: false, error }` before it leaves the
+ * server, so the Japanese text actually reaches the form.
+ *
+ * Anything else is a bug: it is logged on the server and reported to the user as
+ * a generic message, never as a raw driver/runtime string.
+ */
+class EquipmentValidationError extends Error {}
+
+export type EquipmentActionResult =
+  { success: true } | { success: false; error: string };
+
+/**
+ * Server Actions must not *throw* user-facing messages: React replaces every
+ * thrown error with the fixed "An error occurred in the Server Components
+ * render…" string in production builds, so the message the user sees locally is
+ * not the one they see in production (#190). Returning the failure as a value
+ * keeps it intact.
+ */
+function toActionResult(err: unknown): EquipmentActionResult {
+  if (err instanceof EquipmentValidationError) {
+    return { success: false, error: err.message };
+  }
+  console.error("備品の操作に失敗しました:", err);
+  return { success: false, error: "処理中にエラーが発生しました" };
+}
 
 async function saveImage(file: File | null): Promise<string | null> {
   if (!file || file.size === 0 || file.name === "undefined") return null;
@@ -34,8 +62,8 @@ async function saveImage(file: File | null): Promise<string | null> {
   // such as an SVG/HTML file can never be stored and later served same-origin.
   const detected = detectImageType(buffer);
   if (!detected) {
-    throw new Error(
-      `error: unsupported image type (${ALLOWED_IMAGE_LABEL} only)`,
+    throw new EquipmentValidationError(
+      `対応していない画像形式です（${ALLOWED_IMAGE_LABEL}のみ）`,
     );
   }
 
@@ -96,96 +124,117 @@ async function deleteImageIfUnreferenced(
   }
 }
 
-export async function createEquipmentAction(formData: FormData) {
-  await requireAdmin();
+export async function createEquipmentAction(
+  formData: FormData,
+): Promise<EquipmentActionResult> {
+  try {
+    if (!(await isAdmin())) {
+      throw new EquipmentValidationError(
+        "この操作には創作展委員の権限が必要です",
+      );
+    }
 
-  const name = String(formData.get("name") ?? "").trim();
-  const quantity = Number(formData.get("quantity"));
-  const pictureFile = formData.get("picture") as File | null;
+    const name = String(formData.get("name") ?? "").trim();
+    const quantity = Number(formData.get("quantity"));
+    const pictureFile = formData.get("picture") as File | null;
 
-  if (!name) {
-    throw new Error("error: equipment name is required");
+    if (!name) {
+      throw new EquipmentValidationError("備品名を入力してください");
+    }
+
+    if (!Number.isInteger(quantity) || quantity <= 0) {
+      throw new EquipmentValidationError("数量は1以上の整数で入力してください");
+    }
+
+    const picture = await saveImage(pictureFile);
+
+    await createEquipment({ name, quantity, picture });
+
+    revalidatePath("/equipment");
+    revalidatePath("/");
+    return { success: true };
+  } catch (err) {
+    return toActionResult(err);
   }
-
-  if (!Number.isInteger(quantity) || quantity <= 0) {
-    throw new Error("error: quantity must be a positive integer");
-  }
-
-  const picture = await saveImage(pictureFile);
-
-  const result = await createEquipment({ name, quantity, picture });
-
-  revalidatePath("/equipment");
-  revalidatePath("/");
-  return result;
 }
 
-export async function updateEquipmentAction(formData: FormData) {
-  await requireAdmin();
+export async function updateEquipmentAction(
+  formData: FormData,
+): Promise<EquipmentActionResult> {
+  try {
+    if (!(await isAdmin())) {
+      throw new EquipmentValidationError(
+        "この操作には創作展委員の権限が必要です",
+      );
+    }
 
-  const equipmentId = Number(formData.get("equipmentId"));
-  const name = String(formData.get("name") ?? "").trim();
-  const quantity = Number(formData.get("quantity"));
-  const pictureFile = formData.get("picture") as File | null;
-  const existingPicture = String(formData.get("existingPicture") ?? "");
+    const equipmentId = Number(formData.get("equipmentId"));
+    const name = String(formData.get("name") ?? "").trim();
+    const quantity = Number(formData.get("quantity"));
+    const pictureFile = formData.get("picture") as File | null;
+    const existingPicture = String(formData.get("existingPicture") ?? "");
 
-  if (!Number.isInteger(equipmentId) || equipmentId <= 0) {
-    throw new Error("error: equipment ID is invalid");
+    if (!Number.isInteger(equipmentId) || equipmentId <= 0) {
+      throw new EquipmentValidationError("備品IDが不正です");
+    }
+
+    const existingEquipment = await getEquipmentById(equipmentId);
+    if (!existingEquipment) {
+      throw new EquipmentValidationError("備品が見つかりませんでした");
+    }
+
+    if (!name) {
+      throw new EquipmentValidationError("備品名を入力してください");
+    }
+
+    if (!Number.isInteger(quantity) || quantity <= 0) {
+      throw new EquipmentValidationError("数量は1以上の整数で入力してください");
+    }
+
+    const activeBorrowings =
+      await getActiveBorrowingsByEquipmentId(equipmentId);
+    if (quantity < activeBorrowings.length) {
+      throw new EquipmentValidationError(
+        `現在貸出中の数 (${activeBorrowings.length}件) を下回る数量には変更できません`,
+      );
+    }
+
+    // The picture stored before this edit, used to decide on file cleanup.
+    const oldPicture = existingEquipment.picture;
+
+    // Resolve the new picture: a freshly uploaded file wins; otherwise keep what
+    // the form carried back (the existing path, or "" when the user removed it).
+    let newPicture: string | null;
+    if (pictureFile && pictureFile.size > 0) {
+      newPicture = await saveImage(pictureFile);
+    } else {
+      newPicture = existingPicture.length > 0 ? existingPicture : null;
+    }
+
+    await updateEquipment(equipmentId, {
+      name,
+      quantity,
+      picture: newPicture,
+    });
+
+    // Only clean up when the picture actually changed (replaced or cleared). When
+    // the image is left untouched, oldPicture === newPicture and nothing is
+    // deleted — this is the fix for the image disappearing on an unrelated edit.
+    if (oldPicture && oldPicture !== newPicture) {
+      await deleteImageIfUnreferenced(oldPicture);
+    }
+
+    revalidatePath("/equipment");
+    revalidatePath("/");
+    return { success: true };
+  } catch (err) {
+    return toActionResult(err);
   }
-
-  const existingEquipment = await getEquipmentById(equipmentId);
-  if (!existingEquipment) {
-    throw new Error("error: equipment not found");
-  }
-
-  if (!name) {
-    throw new Error("error: equipment name is required");
-  }
-
-  if (!Number.isInteger(quantity) || quantity <= 0) {
-    throw new Error("error: quantity must be a positive integer");
-  }
-
-  const activeBorrowings = await getActiveBorrowingsByEquipmentId(equipmentId);
-  if (quantity < activeBorrowings.length) {
-    throw new Error(
-      `現在貸出中の数 (${activeBorrowings.length}件) を下回る数量には変更できません`,
-    );
-  }
-
-  // The picture stored before this edit, used to decide on file cleanup.
-  const oldPicture = existingEquipment.picture;
-
-  // Resolve the new picture: a freshly uploaded file wins; otherwise keep what
-  // the form carried back (the existing path, or "" when the user removed it).
-  let newPicture: string | null;
-  if (pictureFile && pictureFile.size > 0) {
-    newPicture = await saveImage(pictureFile);
-  } else {
-    newPicture = existingPicture.length > 0 ? existingPicture : null;
-  }
-
-  const result = await updateEquipment(equipmentId, {
-    name,
-    quantity,
-    picture: newPicture,
-  });
-
-  // Only clean up when the picture actually changed (replaced or cleared). When
-  // the image is left untouched, oldPicture === newPicture and nothing is
-  // deleted — this is the fix for the image disappearing on an unrelated edit.
-  if (oldPicture && oldPicture !== newPicture) {
-    await deleteImageIfUnreferenced(oldPicture);
-  }
-
-  revalidatePath("/equipment");
-  revalidatePath("/");
-  return result;
 }
 
 export async function deleteEquipmentAction(
   equipmentId: number,
-): Promise<{ success: boolean; error?: string }> {
+): Promise<EquipmentActionResult> {
   if (!(await isAdmin())) {
     return { success: false, error: "この操作には創作展委員の権限が必要です" };
   }
@@ -204,7 +253,7 @@ export async function deleteEquipmentAction(
         .for("update");
 
       if (!existingEquipment) {
-        throw new Error("備品が見つかりませんでした");
+        throw new EquipmentValidationError("備品が見つかりませんでした");
       }
 
       const activeBorrowings = await tx
@@ -217,7 +266,7 @@ export async function deleteEquipmentAction(
           ),
         );
       if (activeBorrowings.length > 0) {
-        throw new Error("貸出中の備品は削除できません");
+        throw new EquipmentValidationError("貸出中の備品は削除できません");
       }
 
       await tx
@@ -230,12 +279,6 @@ export async function deleteEquipmentAction(
     revalidatePath("/");
     return { success: true };
   } catch (err) {
-    return {
-      success: false,
-      error:
-        err instanceof Error
-          ? err.message
-          : "データベース処理中にエラーが発生しました",
-    };
+    return toActionResult(err);
   }
 }
